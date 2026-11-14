@@ -11,7 +11,7 @@ Data: 3994 IFC projects with a description (A: 306, B: 3168, C: 520). Test metho
 | Hand-made ESG risk score | 0.19 | 0.43 | 0.29 | 0.14 | 0.58 | 0.08 |
 | (a) ESGify 47 class scores | 0.52 | 0.67 | 0.65 | 0.19 | 0.77 | 0.14 |
 | (a) + industry | 0.58 | 0.71 | 0.67 | 0.20 | 0.81 | 0.17 |
-| Word counts (TF-IDF), no ESGify | 0.73 | 0.76 | 0.56 | 0.44 | 0.90 | 0.27 |
+| Word counts (TF-IDF), no ESGify | 0.73 | 0.76 | 0.56 | 0.45 | 0.90 | 0.27 |
 
 What the columns mean (all between 0 and 1, higher is better):
 - **Macro F1**: overall quality, with A, B and C counting equally however rare they are.
@@ -41,13 +41,13 @@ Confusion matrix (rows: real category, columns: predicted):
 
 | real \ predicted | A | B | C |
 |---|---|---|---|
-| A | 171 | 130 | 5 |
-| B | 209 | 2832 | 127 |
-| C | 6 | 86 | 428 |
+| A | 170 | 131 | 5 |
+| B | 205 | 2836 | 127 |
+| C | 5 | 87 | 428 |
 
-Inputs that push most **towards** Category A: power (+2.78), construction (+2.61), km (+2.04), transmission (+1.46), cocoa (+1.41), development (+1.41), gas (+1.38), toll (+1.37), mining (+1.36), pipeline (+1.34)
+Inputs that push most **towards** Category A: power (+2.78), construction (+2.61), km (+1.97), mine (+1.95), transmission (+1.46), cocoa (+1.41), gas (+1.40), toll (+1.38), development (+1.37), pipeline (+1.35)
 
-Inputs that push most **away** from Category A: services (-1.35), network (-1.25), financial (-1.19), market (-1.13), bank (-0.95), company (-0.94), provide (-0.90), companies (-0.89), products (-0.88), leading (-0.87)
+Inputs that push most **away** from Category A: services (-1.34), network (-1.24), financial (-1.18), market (-1.12), bank (-0.95), company (-0.93), provide (-0.90), companies (-0.88), products (-0.87), leading (-0.86)
 
 ## Our own example descriptions (owner-style text, not IFC)
 
@@ -56,6 +56,6 @@ Each cell: predicted category (probability of A). Industries were set by hand fo
 | Sample | Expected (our judgement) | Industry only (no text) | Hand-made ESG risk score | (a) ESGify 47 class scores | (a) + industry | Word counts (TF-IDF), no ESGify |
 |---|---|---|---|---|---|---|
 | dairy_plant_expansion.txt | B | B (0.32) | A (0.54) | B (0.23) | B (0.21) | B (0.11) |
-| hydropower_project.txt | A | A (0.64) | B (0.00) | A (0.72) | A (0.75) | A (0.73) |
+| hydropower_project.txt | A | A (0.64) | B (0.00) | A (0.72) | A (0.75) | A (0.72) |
 | rooftop_solar_project.txt | B or C | A (0.64) | C (0.28) | B (0.40) | A (0.46) | B (0.16) |
 | solar_with_risk_denials.txt | B or C | A (0.64) | B (0.19) | A (0.53) | A (0.83) | B (0.17) |

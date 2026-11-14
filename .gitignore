@@ -5,8 +5,9 @@ __pycache__/
 .pytest_cache/
 .env
 
-# Downloaded and generated data stay out of git (rebuild them with the main.py commands);
-# keep the empty folders
+# Downloaded data, generated data and trained models stay out of git (rebuild them with the
+# main.py commands); keep the empty folders
 data/raw/*
 data/processed/*
+models/*
 !**/.gitkeep
