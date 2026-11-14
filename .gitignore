@@ -1,5 +1,12 @@
 .venv/
 __pycache__/
 *.pyc
-.env
+*.egg-info/
 .pytest_cache/
+.env
+
+# Downloaded and generated data stay out of git (rebuild them with the main.py commands);
+# keep the empty folders
+data/raw/*
+data/processed/*
+!**/.gitkeep

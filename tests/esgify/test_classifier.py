@@ -1,4 +1,4 @@
-"""Tests for main.classify.
+"""Tests for the ESGify classifier wrapper.
 
 Unit tests use a fake model so they run in milliseconds and check only our own
 logic. Tests marked "slow" load the real ESGify model and check its behaviour.
@@ -8,7 +8,8 @@ Run everything with `pytest`, or skip the slow ones with `pytest -m "not slow"`.
 import pytest
 import torch
 
-from main import classify, load_model
+from esg_screening.esgify import taxonomy
+from esg_screening.esgify.classifier import classify, predict_scores
 
 
 class FakeTokenizer:
@@ -66,12 +67,18 @@ def test_scores_rounded_to_three_decimals():
     assert labels == [("A", 0.123)]
 
 
-# ---------- integration tests (slow, real ESGify model) ----------
+def test_predict_scores_batches_cover_all_texts():
+    model = FakeModel([[0.1, 0.2, 0.3, 0.4]] * 5)
+    scores = predict_scores(["t"] * 5, model, FakeTokenizer(), batch_size=2)
+    assert scores.shape == (5, 4)
 
-@pytest.fixture(scope="module")
-def esgify():
-    """Load the real model once and share it across all tests in this file."""
-    return load_model()
+
+# ---------- integration tests (slow, real ESGify model; `esgify` fixture in conftest.py) ----------
+
+@pytest.mark.slow
+def test_taxonomy_covers_every_model_label(esgify):
+    model, _ = esgify
+    assert set(model.id2label.values()) == set(taxonomy.LABELS)
 
 
 @pytest.mark.slow
