@@ -55,7 +55,50 @@ python main.py ifc-evaluate    # ~2 min: compares approaches, writes reports/ifc
 ```
 
 The first run of the ESG risk finder downloads two AI models into `~/.cache` (about 2 GB).
-Downloaded data and the trained model are not stored in git; the commands above recreate them.
+
+### Shortcut: use the published model instead of building it
+The trained category model is published as a download on the GitHub release `v0.2.0`, so you can
+skip the IFC download and training:
+
+```bash
+mkdir -p models
+curl -L -o models/category_model.joblib https://github.com/JanNikolaidovic/ESG_classifier_module/releases/download/v0.2.0/category_model.joblib
+curl -L -o models/category_model.json https://github.com/JanNikolaidovic/ESG_classifier_module/releases/download/v0.2.0/category_model.json
+sha256sum models/category_model.joblib models/category_model.json   # compare with the table below
+python main.py predict-category data/samples/hydropower_project.txt
+```
+
+| File | SHA-256 (must match exactly) |
+|---|---|
+| `category_model.joblib` | `0827404013c922b82dec3402c2efd585c87fcd7c4a0337abd019725028570e7f` |
+| `category_model.json` | `66d5ad110ce2957a2c938fe2c9639403e17d6034b8f4375b1153e67e8fd92a2e` |
+
+**Check the checksums before using the model.** A `.joblib` file can run any code when it is
+loaded, so only load one whose checksum matches the table above (this table lives in git, next to
+the code, so it shows exactly which file the authors published). The model needs the
+scikit-learn version from `requirements.txt` (1.9.1).
+
+**Using the model without this code.** The file is a standard scikit-learn pipeline (TF-IDF +
+logistic regression) and needs only scikit-learn 1.9.1 and pandas. Its input is a table with one
+column named `description` (English text, one row per project):
+
+```python
+import joblib, pandas as pd
+
+model = joblib.load("category_model.joblib")     # after checking its SHA-256
+X = pd.DataFrame({"description": ["Construction of a 300 MW coal power plant and a 40 km transmission line."]})
+model.predict(X)          # array(['A'])
+model.predict_proba(X)    # probabilities for model.classes_ = ['A', 'B', 'C']
+```
+
+It gives the category only. The ESG risk topics with evidence sentences and the word explanations
+come from this repository's code (`predict-category`).
+
+### Where the data lives
+Downloaded data and the trained model are not stored in git. Running the commands above recreates
+them from today's IFC data, which differs slightly from ours (IFC adds and edits projects daily).
+**To reproduce our results exactly**, use our data snapshot instead: see
+[`data/SNAPSHOT.md`](data/SNAPSHOT.md) for what it contains, its checksums and the steps.
 
 ---
 
@@ -303,12 +346,19 @@ training, logistic regression learned one weight per word for each category: *po
 *construction*, *mining* got high weights for A; *bank*, *software*, *services* for C. To predict,
 it adds up the weights of the words in the text and turns the totals into percentages.
 
+Three categories, not two: this is **multinomial** logistic regression. Instead of one score (as in
+yes/no logistic regression), it computes one score per category (A, B and C) and turns the three
+scores into percentages that add up to 100% (the "softmax" formula). With only two categories it
+would be exactly the ordinary yes/no logistic regression. It treats A, B and C as separate labels
+and does not use their order (A is more severe than B, which is more severe than C).
+
 Details worth knowing:
 - `evaluate.py` and `train.py` use **the same model definition** (`word_count_model()`), so the
   model we ship is exactly the model we measured.
 - Very common words ("the", "and") are ignored. The standard list of such words also contains
   "mine", "well" and "fire", which matter here (gold mine, oil well, fire safety), so we keep them.
-- **Only load model files you created yourself**: a `.joblib` file can run any code when loaded.
+- **Only load model files you created yourself, or the published one after checking its
+  checksum** (see [Quick start](#quick-start)): a `.joblib` file can run any code when loaded.
 - If the installed scikit-learn version differs from the one in the report card, loading prints a
   warning: retrain with `train-category` to be safe.
 
@@ -346,6 +396,75 @@ it does *not* have an A project.
   ESGify is kept for what it does well: pointing to the sentences that mention each ESG risk topic,
   as an explanation for a human reviewer. Better text models (e.g. a language model's summary of the
   text, or a fine-tuned language model) are the next things to try against word counts.
+
+---
+
+## Check it yourself
+
+### Is the data really from IFC?
+The project **list** comes from an official **API** (the World Bank's open-data service "Finances
+One", dataset DS00499). The project **texts** come from IFC's public project pages; there is no API
+for those, so the pages are downloaded like a browser would (`robots.txt` allows it). Four checks:
+
+1. **Ask the API yourself.** Paste this into a browser; it returns the first 3 projects as JSON:
+   `https://datacatalogapi.worldbank.org/dexapps/fone/api/apiservice?datasetId=DS00499&resourceId=RS00048&type=json&top=3`
+   Compare with our untouched copy of the list, `data/raw/ifc/project_list.json` (same fields,
+   same values). The dataset's public page:
+   https://financesone.worldbank.org/ifc-investment-services-projects/DS00499
+2. **Compare a project with its IFC page.** Pick any row of `data/processed/ifc_projects.csv`,
+   open its page (the `project_url` in `project_list.json`, also shown by the command below) and
+   check that the "Project Description" text and the "Environmental Category" match:
+   ```bash
+   python -c "import pandas as pd; r = pd.read_csv('data/processed/ifc_projects.csv', dtype=str).set_index('project_number').loc['35348']; print(r.category, r.project_name); print(r.description)"
+   ```
+   (35348 is an example: "Xenel Wind Jordan", Category A,
+   https://disclosures.ifc.org/project-detail/SII/35348/xenel-wind-jordan)
+3. **Look at a raw page exactly as IFC's server sent it.** Pages are stored compressed but
+   otherwise unchanged:
+   ```bash
+   zcat data/raw/ifc/pages/35348.html.gz > /tmp/35348.html    # then open /tmp/35348.html in a browser
+   ```
+4. **Read the download log**, `data/raw/ifc/download.log`: when the download ran, how many pages,
+   and which failed (2 pages that IFC's server refuses).
+5. **Cross-check the labels.** The `category` column (A/B/C) is copied from the API's
+   `environmental_category` field; it was assigned by IFC's own E&S specialists. Most pages also
+   state it in words ("This is a Category B project", kept in the `rationale` column). In the
+   3,564 projects whose rationale names a category, the two sources agree in 3,550 (99.6%); the
+   rest are a few projects whose category IFC apparently revised, and sentences that mention a
+   different project's category. Repeat the check:
+   ```bash
+   python -c "import pandas as pd; t = pd.read_csv('data/processed/ifc_projects.csv'); s = t.rationale.fillna('').str.extract(r'[Cc]ategory\s+([ABC])\b', expand=False); h = s.notna(); print(h.sum(), 'rationales name a category;', (s[h] == t.category[h]).mean(), 'agree')"
+   ```
+
+Note: our copy is a snapshot (downloaded 14 November 2026). IFC adds projects every day and can
+edit pages, so small differences with today's website are normal.
+
+### All parameters in one place
+
+| What | Setting | Where |
+|---|---|---|
+| **Data collection** | | |
+| Project list source | Finances One API, dataset `DS00499`, resource `RS00048` | `ifc/project_list.py:10-11` |
+| Records per API request | 1,000 | `ifc/project_list.py:12` |
+| Categories kept | A, B, C (FI-1/2/3 and "Other" left out) | `ifc/project_list.py:16` |
+| Pause between requests | 1 second | `ifc/fetching.py:24` |
+| Retries / waiting time | 4 retries, waiting 5, 10, 20, 40 s | `ifc/fetching.py:24-51` |
+| **Data cleaning** | | |
+| Model input | "Project Description" + "Location of Project and Description of Site" | `ifc/pages.py:15` |
+| Text removed | IFC's E&S review (from its first sentence on) + sentences naming a category | `ifc/dataset.py:26-36, 99` |
+| Projects dropped | descriptions under 20 words; duplicate descriptions | `ifc/dataset.py:90-91` |
+| **Category model** | | |
+| Words used | lower-cased words of 2+ letters/digits, single words and word pairs | `categorizer/model.py:52` |
+| Rare words ignored | words in fewer than 3 descriptions (`min_df=3`) | `categorizer/model.py:52` |
+| Common words ignored | scikit-learn's English stopword list, minus "mine", "well", "fire" | `categorizer/model.py:47` |
+| Word scaling | TF-IDF with dampened counts (`sublinear_tf=True`) | `categorizer/model.py:52` |
+| Vocabulary learned | 29,824 inputs (8,868 words + 20,956 word pairs) | result of training |
+| Classifier | logistic regression, L2 regularisation strength `C=1.0` (default), solver `lbfgs` | `categorizer/model.py:39-41` |
+| Rare category A | `class_weight="balanced"`: mistakes on A count ~10x more than on B | `categorizer/model.py:41` |
+| Training data | all 3,994 IFC projects | `categorizer/train.py:20` |
+| **Testing** | | |
+| Method | 5-fold cross-validation, projects of one company kept together, fixed shuffle (`random_state=0`) | `categorizer/evaluate.py:70-75` |
+| Metrics | see [Results so far](#results-so-far) and `models/category_model.json` | `categorizer/evaluate.py:77` |
 
 ---
 
@@ -398,7 +517,9 @@ src/esg_screening/
         train.py                  step 7: tests, trains and saves the category model
 data/samples/                   example owner-style descriptions (low, medium, high risk, and
                                 one low-risk project that lists the risks it does NOT have)
+data/SNAPSHOT.md                description + checksums of our data snapshot, and how to reproduce
 data/raw/, data/processed/      downloaded and generated data (not in git; rebuild with main.py)
+snapshots/                      the packed data snapshot archive (not in git; see data/SNAPSHOT.md)
 models/                         the trained category model + its report card (not in git;
                                 rebuild with train-category)
 reports/                        evaluation reports

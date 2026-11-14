@@ -74,7 +74,8 @@ def save(model, metadata, path=MODEL_PATH):
 def load(path=MODEL_PATH):
     """Load a saved model and its description.
 
-    Only load model files you created yourself: a .joblib file can run any code when loaded.
+    Only load model files you created yourself, or the published one after checking its SHA-256
+    checksum against the README: a .joblib file can run any code when loaded.
     """
     if not path.exists():
         raise FileNotFoundError(f"No trained model at {path}. Run `python main.py train-category` first.")
