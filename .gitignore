@@ -11,3 +11,6 @@ data/raw/*
 data/processed/*
 models/*
 !**/.gitkeep
+
+# Data snapshots (large; stored outside git, see data/SNAPSHOT.md)
+snapshots/
