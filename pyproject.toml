@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esg-screening"
+version = "0.1.0"
+description = "ESG screening of projects from their free-text description"
+requires-python = ">=3.10"
+# Direct dependencies with loose ranges; requirements.txt pins the exact tested versions
+dependencies = [
+    "torch",
+    "transformers>=4.40,<5",  # flair does not support transformers 5 yet
+    "flair>=0.15",
+    "nltk",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "requests",
+    "beautifulsoup4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

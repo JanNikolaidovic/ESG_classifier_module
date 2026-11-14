@@ -9,13 +9,15 @@ The notebook removes stopwords *before* NER; we do it after, because the tagger
 relies on words like "in" and "the" and loses confidence without them.
 """
 
+import logging
 import re
 
-import nltk
 from flair.data import Sentence
 from flair.nn import Classifier
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+
+from esg_screening.esgify.nltk_data import ensure_nltk_data
 
 NER_MODEL_NAME = "flair/ner-english-ontonotes"
 # The notebook masks only FAC, LOC, ORG and PERSON; GPE (countries, cities, states) and DATE
@@ -31,15 +33,6 @@ DEFAULT_TAGS = (
 TAG_PATTERN = re.compile(r"(<[A-Z_]+>)")
 
 
-def _ensure_nltk_data():
-    """Download the NLTK stopword list and tokenizer data on first use."""
-    for resource, path in [("stopwords", "corpora/stopwords"), ("punkt_tab", "tokenizers/punkt_tab")]:
-        try:
-            nltk.data.find(path)
-        except LookupError:
-            nltk.download(resource, quiet=True)
-
-
 class NameMasker:
     """Replaces named entities in text with tags such as <ORG> or <PERSON>."""
 
@@ -47,7 +40,8 @@ class NameMasker:
     # while in our checks no non-entity scored above 0.7.
     def __init__(self, tags=DEFAULT_TAGS, min_confidence=0.7, remove_stopwords=True,
                  model_name=NER_MODEL_NAME):
-        _ensure_nltk_data()
+        ensure_nltk_data()
+        logging.getLogger("flair").setLevel(logging.WARNING)  # flair logs info messages to stdout
         self.tagger = Classifier.load(model_name)
         self.tags = set(tags)
         self.min_confidence = min_confidence
