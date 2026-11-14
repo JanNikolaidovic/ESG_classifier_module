@@ -14,8 +14,6 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (balanced_accuracy_score, confusion_matrix, f1_score, precision_recall_curve,
                              precision_score, recall_score, roc_auc_score)
 from sklearn.model_selection import StratifiedGroupKFold, cross_val_predict
@@ -23,13 +21,13 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from esg_screening.categorizer.features import CLASS_PREFIX, FEATURES_PATH, fingerprint, result_to_row
+from esg_screening.categorizer.model import CATEGORIES, logistic_regression, word_count_model
 from esg_screening.ifc.dataset import DATASET_PATH
 
 log = logging.getLogger(__name__)
 
 REPORT_PATH = Path("reports/ifc_category_evaluation.md")
 SAMPLES_DIR = Path("data/samples")
-CATEGORIES = ["A", "B", "C"]
 HAND_MADE_COLUMNS = ["esg_risk_score", "esg_e_score", "esg_s_score", "esg_g_score"]
 APPROACH_A = "(a) ESGify 47 class scores"
 WORD_COUNTS = "Word counts (TF-IDF), no ESGify"
@@ -50,11 +48,6 @@ SAMPLE_EXPECTED = {
 }
 
 
-def logistic_regression():
-    # class_weight="balanced": A is rare, so mistakes on A projects count more during learning
-    return LogisticRegression(class_weight="balanced", max_iter=5000)
-
-
 def build_approaches(class_columns):
     """Each approach = which input columns it uses + a model. All are scikit-learn pipelines."""
     def using(*transformers):
@@ -70,11 +63,15 @@ def build_approaches(class_columns):
             using(("score", StandardScaler(), HAND_MADE_COLUMNS)), logistic_regression()),
         APPROACH_A: make_pipeline(using(esgify), logistic_regression()),
         "(a) + industry": make_pipeline(using(esgify, industry), logistic_regression()),
-        WORD_COUNTS: make_pipeline(
-            using(("words", TfidfVectorizer(min_df=3, ngram_range=(1, 2), sublinear_tf=True,
-                                            stop_words="english"), "description")),
-            logistic_regression()),
+        WORD_COUNTS: word_count_model(),  # the model that `train-category` trains and saves
     }
+
+
+def cross_validated_probabilities(pipeline, data):
+    """Each project's A/B/C probabilities, from a model that never saw the project (see top of file)."""
+    folds = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=0)
+    companies = data["company_name"].fillna(data["project_number"])
+    return cross_val_predict(pipeline, data, data["category"], cv=folds, groups=companies, method="predict_proba")
 
 
 def summarise(y_true, probabilities):
@@ -104,13 +101,12 @@ def load_data(dataset_path=DATASET_PATH, features_path=FEATURES_PATH):
 def run_evaluation(report_path=REPORT_PATH):
     data = load_data()
     class_columns = [c for c in data.columns if c.startswith(CLASS_PREFIX)]
-    y, companies = data["category"].to_numpy(), data["company_name"].fillna(data["project_number"])
-    folds = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=0)
+    y = data["category"].to_numpy()
     log.info("Evaluating on %d projects: %s", len(data), data["category"].value_counts().to_dict())
 
     results, all_probabilities = {}, {}
     for name, pipeline in build_approaches(class_columns).items():
-        probabilities = cross_val_predict(pipeline, data, y, cv=folds, groups=companies, method="predict_proba")
+        probabilities = cross_validated_probabilities(pipeline, data)
         results[name] = summarise(y, probabilities)
         all_probabilities[name] = probabilities
         log.info("%-35s %s", name, {k: round(v, 3) for k, v in results[name].items()})

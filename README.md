@@ -3,25 +3,32 @@
 This tool reads the **free-text description of a project** (for example, a new factory, mine or
 solar farm) and tells you about its **environmental and social (E&S) risk**:
 
-1. **Which ESG risks the text talks about**, and the sentence where each one appears.
-2. **Which risk category the project most likely belongs to**: A (significant), B (limited) or
-   C (minimal). This is the same A/B/C system that development banks such as the IFC use.
+1. **Which risk category the project most likely belongs to**: A (significant), B (limited) or
+   C (minimal), with the words that led to that answer. This is the same A/B/C system that
+   development banks such as the IFC use. The model learned it from ~4,000 real IFC projects.
+2. **Which ESG risk topics the text mentions**, and the sentence where each one appears, so a
+   reviewer knows what to read.
 
 Descriptions must be in English.
+
+```bash
+python main.py predict-category my_project.txt
+```
 
 ---
 
 ## Contents
 
 1. [Quick start](#quick-start)
-2. [The big picture](#the-big-picture)
-3. [Part 1: the ESG risk finder](#part-1-the-esg-risk-finder)
-4. [Part 2: learning the A/B/C category from IFC projects](#part-2-learning-the-abc-category-from-ifc-projects)
-5. [Results so far](#results-so-far)
-6. [Known limitations](#known-limitations)
-7. [Files at a glance](#files-at-a-glance)
-8. [Tests](#tests)
-9. [Glossary](#glossary)
+2. [Using the tool: input and output](#using-the-tool-input-and-output)
+3. [The big picture](#the-big-picture)
+4. [Part 1: the ESG risk finder](#part-1-the-esg-risk-finder)
+5. [Part 2: learning the A/B/C category from IFC projects](#part-2-learning-the-abc-category-from-ifc-projects)
+6. [Results so far](#results-so-far)
+7. [Known limitations](#known-limitations)
+8. [Files at a glance](#files-at-a-glance)
+9. [Tests](#tests)
+10. [Glossary](#glossary)
 
 ---
 
@@ -34,42 +41,103 @@ source .venv/bin/activate
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev]"
 
-# find ESG risks in one description
-python main.py score-esg data/samples/hydropower_project.txt
-
-# build the IFC dataset and measure how well we predict A/B/C (each step can be resumed)
+# one-time: build the IFC dataset and train the category model (each step can be resumed)
 python main.py ifc-download    # ~70 min: downloads ~4,000 public IFC project pages
 python main.py ifc-build       # ~1 min: turns the pages into one table
+python main.py train-category  # ~1 min: trains, tests and saves the model to models/
+
+# use the tool on a description
+python main.py predict-category data/samples/hydropower_project.txt
+
+# optional: repeat the comparison of approaches
 python main.py ifc-features    # ~1.5 hours on a laptop CPU: runs Part 1 on every IFC project
-python main.py ifc-evaluate    # ~1 min: compares approaches, writes reports/ifc_category_evaluation.md
+python main.py ifc-evaluate    # ~2 min: compares approaches, writes reports/ifc_category_evaluation.md
 ```
 
-The first run downloads two AI models into `~/.cache` (about 2 GB in total).
+The first run of the ESG risk finder downloads two AI models into `~/.cache` (about 2 GB).
+Downloaded data and the trained model are not stored in git; the commands above recreate them.
+
+---
+
+## Using the tool: input and output
+
+### Input
+- **One plain-text file (`.txt`, UTF-8)** with the project owner's free-text description.
+- **English**, any layout (ordinary paragraphs; no headings or fields needed).
+- **About 150-1,000 words.**
+- Names of companies, people and places are fine.
+- **Useful content:** what the project is and how big (MW, hectares, tonnes, km), where it is and
+  on what kind of site (new or existing), land needs and people affected, water, waste and
+  emissions, workforce and contractors, past incidents. See `data/samples/` for examples.
+
+### Commands
+```bash
+python main.py predict-category my_project.txt              # category + reasons + ESG risk topics
+python main.py predict-category my_project.txt --no-risks   # category only: ~1 s instead of ~25 s
+python main.py predict-category my_project.txt --json       # the same, as JSON for other programs
+python main.py score-esg my_project.txt                     # ESG risk topics only
+```
+
+### Output (real example: `data/samples/hydropower_project.txt`)
+```
+Predicted E&S category: A  (potentially significant, diverse or irreversible environmental and social impacts)
+  A: 72%   B: 25%   C: 3%
+
+Words in this text pointing towards A: river, km, construction, transmission, power, associated, national, roads
+Words pointing away from A:            workers, banks, areas, company, international, quality, sites, rights
+
+ESG risk topics mentioned (ESGify), strongest first:
+  [S] Employee Health and Safety
+      "Workers on the site will be exposed to risks associated with underground tunnelling, ..."
+  [E] Biodiversity
+      "The river supports several endemic fish species, and the downstream wetlands are ..."
+  ...
+Model trained 2026-11-14 on 3,994 IFC projects (tested: A ranking 0.90, balanced accuracy 0.76)
+```
+
+### How to read it
+- **The category** is the model's best guess of the category IFC's experts would give.
+- **The percentages** show how sure the model is, **relative to the other categories**. They are not
+  real-world chances: during training, mistakes on rare A projects counted extra, which pushes A
+  percentages up. Read "A: 30%" as "worth a closer look", not "30% chance".
+- **The words** are the words of *this* text that pushed the answer most towards or away from A.
+  They show what the model reacted to.
+- **The ESG risk topics** come from a different model (ESGify, Part 1). They do not decide the
+  category; they point a reviewer to the sentences worth reading.
+
+### From Python (e.g. inside a backend service)
+```python
+from esg_screening.categorizer import model as category_model
+
+model, info = category_model.load()                                # once, at startup
+[(category, probabilities)] = category_model.predict(model, [text])
+towards_a, away_from_a = category_model.explain(model, text)
+```
 
 ---
 
 ## The big picture
 
 ```
-                         Project description (text)
-                                     │
-                                     ▼
-                ┌──────────────────────────────────────────┐
-     Part 1     │  ESG risk finder (uses the ESGify model) │
-                │  "Which ESG risk topics are mentioned,   │
-                │   where, and how strongly?"              │
-                └──────────────────────────────────────────┘
-                                     │  47 topic scores + evidence sentences
-                                     ▼
-                ┌──────────────────────────────────────────┐
-     Part 2     │  Category predictor                      │
-                │  learned from ~4,000 real IFC projects   │
-                │  "Is this an A, B or C project?"         │
-                └──────────────────────────────────────────┘
-                                     │
-                                     ▼
-                        Category A / B / C (+ probabilities)
+                          Project description (text)
+                                      │
+                 ┌────────────────────┴────────────────────┐
+                 ▼                                         ▼
+  ┌─────────────────────────────┐          ┌─────────────────────────────┐
+  │ Category model (Part 2)     │          │ ESG risk finder (Part 1)    │
+  │ word counts + logistic      │          │ ESGify model                │
+  │ regression, learned from    │          │ "Which ESG risk topics are  │
+  │ ~4,000 real IFC projects    │          │  mentioned, and where?"     │
+  └─────────────────────────────┘          └─────────────────────────────┘
+                 │                                         │
+                 ▼                                         ▼
+    Category A / B / C, percentages,          Risk topics + the sentence
+    and the words that led to it              where each one appears
 ```
+
+The two parts work independently. We first tried feeding Part 1's topic scores into the category
+model ("approach (a)"), but plain word counts predicted IFC's categories much better
+(see [Results so far](#results-so-far)), so the category model reads the text directly.
 
 ---
 
@@ -218,6 +286,32 @@ as more important ("balanced class weights"), because missing an A project is th
 
 The full report is written to `reports/ifc_category_evaluation.md`.
 
+### Step 7: train and save the category model (`categorizer/model.py`, `categorizer/train.py`)
+`python main.py train-category` takes the winner of step 6, **word counts (TF-IDF) + logistic
+regression**, and makes it ready to use:
+1. **Test it** once more with the same 5-fold cross-validation as step 6.
+2. **Train it on all 3,994 IFC projects** (the more examples, the better the final model).
+3. **Save it** to `models/` as two files:
+   - `category_model.joblib`: the trained model (~1.5 MB);
+   - `category_model.json`: its "report card": when it was trained, on which data file (with a
+     fingerprint of that file), how many projects of each category, its test results, and the
+     software versions used.
+
+How the model works, in plain words: TF-IDF turns a description into one number per word (and per
+pair of words), higher for words that appear in this text but are rare across all texts. During
+training, logistic regression learned one weight per word for each category: *power*, *km*,
+*construction*, *mining* got high weights for A; *bank*, *software*, *services* for C. To predict,
+it adds up the weights of the words in the text and turns the totals into percentages.
+
+Details worth knowing:
+- `evaluate.py` and `train.py` use **the same model definition** (`word_count_model()`), so the
+  model we ship is exactly the model we measured.
+- Very common words ("the", "and") are ignored. The standard list of such words also contains
+  "mine", "well" and "fire", which matter here (gold mine, oil well, fire safety), so we keep them.
+- **Only load model files you created yourself**: a `.joblib` file can run any code when loaded.
+- If the installed scikit-learn version differs from the one in the report card, loading prints a
+  warning: retrain with `train-category` to be safe.
+
 ---
 
 ## Results so far
@@ -248,9 +342,10 @@ it does *not* have an A project.
   about, not how risky the project is.
 - **The hand-made 0-100 score from Part 1 barely predicts the category** (0.58, where 0.5 is random).
   It should be read as "how much ESG-risk language the text contains", not as a risk level.
-- **Current recommendation:** predict the category with a text classifier (word counts now; a fine-tuned
-  language model is the next thing to try), and keep ESGify for what it does well: pointing to the
-  sentences that mention each ESG risk topic, as an explanation for a human reviewer.
+- **What the tool does now:** the category comes from the word-count model (`predict-category`), and
+  ESGify is kept for what it does well: pointing to the sentences that mention each ESG risk topic,
+  as an explanation for a human reviewer. Better text models (e.g. a language model's summary of the
+  text, or a fine-tuned language model) are the next things to try against word counts.
 
 ---
 
@@ -268,6 +363,11 @@ it does *not* have an A project.
   score barely predicts IFC's category (see [Results so far](#results-so-far)).
 - **Only four owner-style test descriptions** exist so far (`data/samples/`); results on real owner
   texts still need checking.
+- **The category model reads words, not meaning.** "No land acquisition is needed" contains the
+  word "land", which points towards A. It works well on average because most descriptions describe
+  what a project *is*, but single sentences can mislead it. The word list in the output shows what
+  it reacted to.
+- **The percentages are not real-world chances** (see [How to read it](#how-to-read-it)).
 - **Speed:** a few seconds per description on a laptop CPU.
 
 ---
@@ -275,7 +375,8 @@ it does *not* have an A project.
 ## Files at a glance
 
 ```
-main.py                         command line: score-esg, ifc-download, ifc-build, ifc-features, ifc-evaluate
+main.py                         command line: predict-category, score-esg, ifc-download, ifc-build,
+                                train-category, ifc-features, ifc-evaluate
 src/esg_screening/
     esgify/                     Part 1: ESG risk finder
         classifier.py             the ESGify model; scores texts in batches
@@ -293,9 +394,13 @@ src/esg_screening/
     categorizer/                Part 2b: predicting A/B/C
         features.py               step 5: Part 1 scores for every IFC project
         evaluate.py               step 6: compares approaches, writes the report
+        model.py                  the category model: definition, save/load, predict, explain
+        train.py                  step 7: tests, trains and saves the category model
 data/samples/                   example owner-style descriptions (low, medium, high risk, and
                                 one low-risk project that lists the risks it does NOT have)
 data/raw/, data/processed/      downloaded and generated data (not in git; rebuild with main.py)
+models/                         the trained category model + its report card (not in git;
+                                rebuild with train-category)
 reports/                        evaluation reports
 tests/                          automatic tests
 ```
@@ -328,6 +433,10 @@ our own logic. The slow tests run the real models on the example descriptions.
   turns their weighted sum into probabilities for A, B and C.
 - **TF-IDF**: a classic way to turn a text into numbers by counting words, giving rare words more
   importance than common ones.
+- **Trained model / model file**: the result of training (the learned weights), saved to disk so it
+  can be loaded and used later without training again. Saved with **joblib**, a Python library for
+  storing such objects.
+- **Stopwords**: very common words ("the", "and", "of") that carry little meaning and are ignored.
 - **Leakage**: when the answer accidentally ends up in the model's input, which makes test results
   look much better than reality.
 - **Cross-validation**: testing a model on data it did not learn from, several times over
